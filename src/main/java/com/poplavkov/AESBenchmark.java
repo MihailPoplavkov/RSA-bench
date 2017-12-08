@@ -3,8 +3,6 @@ package com.poplavkov;
 import org.openjdk.jmh.annotations.*;
 
 import javax.crypto.*;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.TimeUnit;
 
 public class AESBenchmark {
@@ -12,8 +10,8 @@ public class AESBenchmark {
     @State(Scope.Thread)
     public static class AESState {
 
-        @Setup(Level.Invocation)
-        public void doSetup() throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException {
+        @Setup(Level.Trial)
+        public void doSetup() throws Exception {
             AESEncryptCipher = Cipher.getInstance("AES");
             AESDecryptCipher = Cipher.getInstance("AES");
             KeyGenerator generator = KeyGenerator.getInstance("AES");
@@ -22,11 +20,13 @@ public class AESBenchmark {
             AESEncryptCipher.init(Cipher.ENCRYPT_MODE, key);
             AESDecryptCipher.init(Cipher.DECRYPT_MODE, key);
             bytes = Util.generateRandomBytes();
+            bytesToDecrypt = AESEncryptCipher.doFinal(bytes);
         }
 
         Cipher AESEncryptCipher;
         Cipher AESDecryptCipher;
         byte[] bytes;
+        byte[] bytesToDecrypt;
     }
 
     @Benchmark @BenchmarkMode(Mode.AverageTime) @OutputTimeUnit(TimeUnit.MILLISECONDS) @Fork(1)
@@ -36,7 +36,7 @@ public class AESBenchmark {
 
     @Benchmark @BenchmarkMode(Mode.AverageTime) @OutputTimeUnit(TimeUnit.MILLISECONDS) @Fork(1)
     public byte[] decryptAES(AESState state) throws BadPaddingException, IllegalBlockSizeException {
-        return state.AESDecryptCipher.doFinal(state.bytes);
+        return state.AESDecryptCipher.doFinal(state.bytesToDecrypt);
     }
 
     @Benchmark @BenchmarkMode(Mode.AverageTime) @OutputTimeUnit(TimeUnit.MILLISECONDS) @Fork(1)
