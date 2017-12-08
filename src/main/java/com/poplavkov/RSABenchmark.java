@@ -1,11 +1,15 @@
 package com.poplavkov;
 
+import org.apache.commons.lang3.ArrayUtils;
 import org.openjdk.jmh.annotations.*;
-import org.openjdk.jmh.infra.Blackhole;
 
-import javax.crypto.*;
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
 import java.security.*;
-import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class RSABenchmark {
@@ -13,60 +17,61 @@ public class RSABenchmark {
     @State(Scope.Thread)
     public static class RSAState {
 
-        @Setup(Level.Invocation)
-        public void doSetup() throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException {
-            AESEncryptCipher = Cipher.getInstance("RSA");
-            AESDecryptCipher = Cipher.getInstance("RSA");
+        @Setup(Level.Trial)
+        public void doSetup() throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+            RSAEncryptCipher = Cipher.getInstance("RSA");
+            RSADecryptCipher = Cipher.getInstance("RSA");
             KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-            generator.initialize(512);
+            int keySize = 512;
+            generator.initialize(keySize);
             KeyPair keyPair = generator.generateKeyPair();
             Key publicKey = keyPair.getPublic();
             Key privateKey = keyPair.getPrivate();
-            AESEncryptCipher.init(Cipher.ENCRYPT_MODE, publicKey);
-            AESDecryptCipher.init(Cipher.DECRYPT_MODE, privateKey);
-            byteBlocks = split(Util.generateRandomBytes(), 512);
-
+            RSAEncryptCipher.init(Cipher.ENCRYPT_MODE, publicKey);
+            RSADecryptCipher.init(Cipher.DECRYPT_MODE, privateKey);
+            bytes = Util.generateRandomBytes();
+            blockSize = keySize / 8;
+            bytesToDecrypt = doFinalWithRSA(bytes, RSAEncryptCipher, blockSize - 11);
         }
 
-        Cipher AESEncryptCipher;
-        Cipher AESDecryptCipher;
-        byte[][] byteBlocks;
+        Cipher RSAEncryptCipher;
+        Cipher RSADecryptCipher;
+        byte[] bytes;
+        byte[] bytesToDecrypt;
+        int blockSize;
     }
-
-//    @Benchmark @BenchmarkMode(Mode.AverageTime) @OutputTimeUnit(TimeUnit.MILLISECONDS)
-//    public byte[] encryptRSA(RSAState state) throws BadPaddingException, IllegalBlockSizeException {
-//        return state.AESEncryptCipher.doFinal(state.bytes);
-//    }
-//
-//    @Benchmark @BenchmarkMode(Mode.AverageTime) @OutputTimeUnit(TimeUnit.MILLISECONDS)
-//    public byte[] decryptRSA(RSAState state) throws BadPaddingException, IllegalBlockSizeException {
-//        return state.AESDecryptCipher.doFinal(state.bytes);
-//    }
 
     @Benchmark @BenchmarkMode(Mode.AverageTime) @OutputTimeUnit(TimeUnit.MILLISECONDS) @Fork(1)
-    public int encryptAndDecryptRSA(RSAState state) throws BadPaddingException, IllegalBlockSizeException {
-        int size = 0;
-        for (byte[] b: state.byteBlocks) {
-            byte[] bytes = state.AESEncryptCipher.doFinal(b);
-            bytes = state.AESDecryptCipher.doFinal(bytes);
-            size += bytes.length;
-        }
-        return size;
+    public byte[] encryptRSA(RSAState state) throws IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, NoSuchPaddingException {
+        return doFinalWithRSA(state.bytes, state.RSAEncryptCipher, state.blockSize - 11);
     }
 
-    private static byte[][] split(byte[] bytes, int keySize) {
-        int blockSize = keySize / 8 - 11;
-        int rows = bytes.length / blockSize;
-        if (bytes.length % blockSize != 0) rows++;
-        byte[][] result = new byte[rows][blockSize];
+    @Benchmark @BenchmarkMode(Mode.AverageTime) @OutputTimeUnit(TimeUnit.MILLISECONDS) @Fork(1)
+    public byte[] decryptRSA(RSAState state) throws IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, NoSuchPaddingException {
+        return doFinalWithRSA(state.bytesToDecrypt, state.RSADecryptCipher, state.blockSize);
+    }
+
+    @Benchmark @BenchmarkMode(Mode.AverageTime) @OutputTimeUnit(TimeUnit.MILLISECONDS) @Fork(1)
+    public byte[] encryptAndDecryptRSA(RSAState state) throws IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, NoSuchPaddingException {
+        byte[] bytes = doFinalWithRSA(state.bytes, state.RSAEncryptCipher, state.blockSize - 11);
+        return doFinalWithRSA(bytes, state.RSADecryptCipher, state.blockSize);
+    }
+
+    private static byte[] doFinalWithRSA(byte[] input, Cipher cipher, int blockSize) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+        int length = input.length;
+        int blockCount = length / blockSize + (length % blockSize == 0 ? 0 : 1);
+        List<Byte> list = new ArrayList<>(blockCount * 64);
         int from = 0;
-        int to = blockSize;
-        for (int i = 0; i < rows; i++) {
-            if (to > bytes.length) to = bytes.length;
-            result[i] = Arrays.copyOfRange(bytes, from, to);
-            from = to;
-            to += blockSize;
+        int inputLen = blockSize;
+        for (int i = 0; i < blockCount; i++) {
+            for (byte b: cipher.doFinal(input, from, inputLen)) {
+                list.add(b);
+            }
+            from += blockSize;
+            if (from + inputLen > length) {
+                inputLen = length - from;
+            }
         }
-        return result;
+        return ArrayUtils.toPrimitive(list.toArray(new Byte[0]));
     }
 }
